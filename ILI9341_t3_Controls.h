@@ -39,6 +39,7 @@ rev		date			author				change
 #if ARDUINO >= 100
  #include "Arduino.h"
  #include "Print.h"
+ #include "nonstd.h"
 #else
  #include "WProgram.h"
 #endif
@@ -47,7 +48,7 @@ rev		date			author				change
 #include "Arduino.h"
 #endif
 
-#include <ILI9341_t3.h>   
+//#include <ILI9341_t3.h>
 
 #define G_REPAINT 0
 #define G_DRAWOVER 1
@@ -128,62 +129,166 @@ rev		date			author				change
 #define C_DISABLE_MED	0x7BCF
 #define C_DISABLE_DARK	0x3186
 
+const float degtorad = .0174532778;
 
- class PRTime {
-
+class PRTime {
 public:
-
-	PRTime();
-
-	void startTime();
-
-	void resetStart();
-
-	unsigned long getElapsedTimeS();
-
-	unsigned long getTotalTimeS();
-
-	unsigned long getElapsedTimeMS();
-
-	unsigned long getTotalTimeMS();
-
-	void restartElapsedTime();
-
-unsigned long starttime;
+    PRTime(){}
+    void startTime( ){
+        starttime = millis();
+        startetime = starttime;
+    }
+    void resetStart( ){
+        starttime = millis();
+    }
+    unsigned long getElapsedTimeS( ){
+        return ((millis() - startetime) / 1000);
+    }
+    unsigned long getTotalTimeS( ){
+        return ((millis() - starttime) / 1000) ;
+    }
+    unsigned long getElapsedTimeMS( ){
+        return (millis() - startetime);
+    }
+    unsigned long getTotalTimeMS( ){
+        return (millis() - starttime);
+    }
+    void restartElapsedTime( ){
+        startetime = millis();
+    }
+    unsigned long starttime;
 	unsigned long startetime;
-
-
-private:
-	
-
 };
 
-
+template <typename TDisplay, typename TFont>
 class BarChartH {
 
 public:
 
-	BarChartH(ILI9341_t3 *Display);
+	BarChartH(TDisplay *Display) : d(Display) {
+    }
 
-	void init(float GraphXLoc, float GraphYLoc, float GraphWidth, float GraphHeight, float ScaleLow, float ScaleHigh, float ScaleInc, const char *Title, uint16_t TextColor, uint16_t BorderColor, uint16_t BarColor, uint16_t BarBColor, uint16_t BackColor,const ILI9341_t3_font_t &TitleFont , const ILI9341_t3_font_t &ScaleFont );
+	void init(float GraphXLoc, float GraphYLoc, float GraphWidth, float GraphHeight, float ScaleLow, float ScaleHigh, float ScaleInc, const char *Title, uint16_t TextColor, uint16_t BorderColor, uint16_t BarColor, uint16_t BarBColor, uint16_t BackColor,const TFont &TitleFont , const TFont &ScaleFont ) {
+        Low = ScaleLow;
+        High = ScaleHigh;
+        Inc = ScaleInc;
+        gx = GraphXLoc;
+        gy = GraphYLoc;
+        gw = GraphWidth;
+        gh = GraphHeight;
+        strncpy(ti, Title, 20);
 
-	void setBarColor(uint16_t val = 0xF800);
+        tf = TitleFont;
+        sf = ScaleFont;
+        tc = TextColor;
+        oc = BorderColor;
+        rc = BarColor;
+        ac = BarBColor;
+        bc = BackColor;
 
-	void draw(float val);
+        redraw = true;
+    }
 
-	void setScale(float ScaleLow, float ScaleHigh, float ScaleInc);
+	void setBarColor(uint16_t val = 0xF800){
+        rc = val;
+    }
 
-	void showTitle(bool val);
+    void draw(float val) {
 
-	void showScale(bool val);
+        if (redraw == true) {
+            redraw = false;
 
-	
+
+            // step val basically scales the hival and low val to the height
+            // deducting a small value to eliminate round off errors
+            // this val may need to be adjusted
+            if (ss){
+                d->setFont(sf);
+                stepval = MapFloat(Inc, Low, High, 0, gw);
+
+                // paint over previous y scale
+                tHi = sf.cap_height * 2 + 8;
+                d->fillRect(gx-10, gy + gh + 1, gw+30, tHi, bc);
+                d->setTextColor(tc, bc);
+
+                for (i = 0; i <= gw; i += stepval) {
+
+                    d->drawFastVLine(i + gx, gy + gh+ 1,  5, tc);
+                    // draw lables
+                    if (High < .1) {
+                        Dec = 3;
+                    }
+                    else  if (High <= 1) {
+                        Dec = 2;
+                    }
+                    else  if (High <= 10) {
+                        Dec = 1;
+                    }
+                    else   {
+                        Dec = 0;
+                    }
+                    data =  i * (Inc / stepval);
+
+                    dtostrf(data, 0, Dec,text);
+                    tLen = d->strPixelLen(text) * 1.2;
+                    tHi =sf.cap_height;
+                    d->setCursor(i + gx - (tLen / 2) , gy + gh + 10);
+
+                    d->print(text);
+                }
+            }
+
+            if(st){
+                d->setTextColor(tc, bc);
+                d->setFont(tf);
+                tHi = sf.cap_height * 2 + 8;
+                d->setCursor(gx , gy -tHi );
+                d->print(ti);
+            }
+
+        }
+        // compute level of bar graph that is scaled to the  height and the hi and low vals
+
+        if (val >= High) {
+            val = High;
+        }
+        if (val <= Low) {
+            val = Low;
+        }
+
+        level = MapFloat( val, Low, High, gx, gx+gw);
+
+        // draw the bar graph
+        // write a upper and lower bar to minimize flicker cause by blanking out bar and redraw on update
+        d->fillRect(level, gy + 1, gx+gw - level, gh - 2,ac);
+        d->fillRect(gx, gy + 1 , level - gx,  gh - 2, rc);
+
+        d->drawRect(gx , gy, gw, gh, oc);
+
+    }
+
+	void setScale(float ScaleLow, float ScaleHigh, float ScaleInc) {
+
+        Low = ScaleLow;
+        High = ScaleHigh;
+        Inc = ScaleInc;
+        redraw = true;
+
+    }
+
+	void showTitle(bool val){
+        st = val;
+    }
+
+    void showScale(bool val) {
+        ss = val;
+    }
 
 
 private:
-		ILI9341_t3			*d;
-		ILI9341_t3_font_t	tf;
-		ILI9341_t3_font_t	sf;
+        TDisplay			*d;
+        TFont	tf;
+        TFont	sf;
 		bool	st = true, ss = true;
 		char	ti[20];
 		char	sc[20];
@@ -209,32 +314,148 @@ private:
 		uint16_t ac;
 		bool redraw;
 		float stepval, range, TempY, level, i, data;
-		float MapFloat(float x, float in_min, float in_max, float out_min, float out_max);
+        float MapFloat(float x, float in_min, float in_max, float out_min, float out_max) {
+
+            if (in_min < 0) {
+                in_max = in_max + abs(in_min);
+                in_min = 0.0;
+            }
+
+            return (x - in_min) * (out_max - out_min) / (in_max - in_min) + out_min;
+        }
 };
 
-
+template <typename TDisplay, typename TFont>
 class BarChartV {
 
 public:
 
-	BarChartV(ILI9341_t3 *Display);
+	BarChartV(TDisplay *Display) : d(Display) {
 
-	void init(float GraphXLoc, float GraphYLoc, float GraphWidth, float GraphHeight, float ScaleLow, float ScaleHigh, float ScaleInc, const char *Title, uint16_t TextColor, uint16_t BorderColor, uint16_t BarColor, uint16_t BarBlankColor, uint16_t BackgroundColor,const ILI9341_t3_font_t &TitleFont , const ILI9341_t3_font_t &ScaleFont );
+    }
 
-	void setBarColor(uint16_t val = 0xF800);
+	void init(float GraphXLoc, float GraphYLoc, float GraphWidth, float GraphHeight, float ScaleLow, float ScaleHigh, float ScaleInc, const char *Title, uint16_t TextColor, uint16_t BorderColor, uint16_t BarColor, uint16_t BarBlankColor, uint16_t BackgroundColor,const TFont &TitleFont , const TFont &ScaleFont ) {
 
-	void draw(float val);
+        Low = ScaleLow;
+        High = ScaleHigh;
+        Inc = ScaleInc;
+        gx = GraphXLoc;
+        gy = GraphYLoc;
+        gw = GraphWidth;
+        gh = GraphHeight;
+        strncpy(ti, Title, 20);
 
-	void setScale(float ScaleLow, float ScaleHigh, float ScaleInc);
+        tf = TitleFont;
+        sf = ScaleFont;
+        tc = TextColor;
+        oc = BorderColor;
+        rc = BarColor;
+        ac = BarBlankColor;
+        bc = BackgroundColor;
+        redraw = true;
+    }
 
-	void showTitle(bool val);
+    void setBarColor(uint16_t val = 0xF800){
 
-	void showScale(bool val);
+        rc = val;
+
+    }
+
+	void draw(float val){
+
+        if (redraw == true) {
+            redraw = false;
+
+
+            // step val basically scales the hival and low val to the height
+            // deducting a small value to eliminate round off errors
+            // this val may need to be adjusted
+
+            if (ss) {
+                d->setFont(sf);
+                stepval = MapFloat( Inc,Low, High,gh - gh, gh);
+
+                // paint over previous y scale
+                d->fillRect(gx + gw, gy - gh - 15, 70, gh + 30, bc);
+                d->setTextColor(tc, bc);
+                for (i = 0; i <= gh; i += stepval) {
+                    TempY =  gy - gh + i;
+                    d->drawFastHLine(gx + gw , TempY,  5, tc);
+                    // draw lables
+
+                    if (High < .1) {
+                        Dec = 3;
+                    }
+                    else  if (High <= 1) {
+                        Dec = 2;
+                    }
+                    else  if (High <= 10) {
+                        Dec = 1;
+                    }
+                    else   {
+                        Dec = 0;
+                    }
+                    data = High - ( i * (Inc / stepval));
+                    dtostrf(data, 0, Dec,text);
+                    tLen = d->strPixelLen(text) * 1.2;
+                    tHi =sf.cap_height;
+                    d->setCursor(gx + gw + 12, TempY - (tHi / 2) );
+                    d->print(text);
+                }
+            }
+            if (st){
+                d->setTextColor(tc, bc);
+                d->setFont(tf);
+                tHi =sf.cap_height * 2 + 5;
+                d->setCursor(gx , gy - gh -tHi );
+                d->print(ti);
+            }
+        }
+        // compute level of bar graph that is scaled to the  height and the hi and low vals
+        // this is needed to accompdate for +/- range
+        if (val >= High) {
+            val = High;
+        }
+        if (val <= Low) {
+            val = Low;
+        }
+        level = (gh * (((val - Low) / (High - Low))));
+
+
+        // draw the bar graph
+        // write a upper and lower bar to minimize flicker cause by blanking out bar and redraw on update
+
+        d->fillRect(gx+1, gy - gh, gw - 2, gh - level, ac);
+        d->fillRect(gx+1, gy - level , gw - 2,  level, rc);
+        d->drawRect(gx , gy - gh - 1 , gw, gh+2, oc);
+
+    }
+
+	void setScale(float ScaleLow, float ScaleHigh, float ScaleInc){
+
+
+        Low = ScaleLow;
+        High = ScaleHigh;
+        Inc = ScaleInc;
+        redraw = true;
+    }
+
+	void showTitle(bool val){
+
+        st = val;
+
+    }
+
+	void showScale(bool val){
+
+        ss = val;
+
+    }
 
 private:
-		ILI9341_t3			*d;
-		ILI9341_t3_font_t	tf;
-		ILI9341_t3_font_t	sf;
+		TDisplay			*d;
+		TFont	tf;
+		TFont	sf;
 		bool	st = true, ss = true;
 		char	ti[20];
 		char	sc[20];
@@ -260,58 +481,373 @@ private:
 		uint16_t ac;
 		bool redraw;
 		float stepval, range, TempY, level, i, data;
-		float MapFloat(float x, float in_min, float in_max, float out_min, float out_max);
+        float MapFloat(float x, float in_min, float in_max, float out_min, float out_max) {
+
+            if (in_min < 0) {
+                in_max = in_max + abs(in_min);
+                in_min = 0.0;
+            }
+
+            return (x - in_min) * (out_max - out_min) / (in_max - in_min) + out_min;
+        }
 };
 
-
-
+template <typename TDisplay, typename TFont>
 class CGraph {
 
 public:
 
-	CGraph(ILI9341_t3 *disp, float GraphXLoc, float GraphYLoc, float GraphWidth, float GraphHeight, float XAxisLow, float XAxisHigh, float XAxisInc, float YAxisLow, float YAxisHigh, float YAxisInc);
+	CGraph(TDisplay *disp, float GraphXLoc, float GraphYLoc, float GraphWidth, float GraphHeight, float XAxisLow, float XAxisHigh, float XAxisInc, float YAxisLow, float YAxisHigh, float YAxisInc) {
 
-	void init(const char *Title, const char *XAxis, const char *YAxis, uint16_t TextColor, uint16_t GridColor, uint16_t AxisColor, uint16_t BackColor,uint16_t PlotkColor, const ILI9341_t3_font_t &TitleFont , const ILI9341_t3_font_t &AxisFont );
+        d = disp;
 
-	void plot(int ID, float y);
+        XLow = XAxisLow;
+        XHigh = XAxisHigh;
+        XInc = XAxisInc;
 
-	void setX(float x);
+        YLow = YAxisLow;
+        YHigh = YAxisHigh;
+        YInc = YAxisInc;
 
-	int add(const char * DataLabel, uint16_t DataColor );
+        gx = GraphXLoc;
+        gy = GraphYLoc;
+        gw = GraphWidth;
+        gh = GraphHeight;
 
-	void setYAxis(float Ylow, float YHigh, float YInc);
+    }
 
-	void setXAxis(float XAxisLow, float XAxisHigh, float XAxisInc);
+	void init(const char *Title, const char *XAxis, const char *YAxis, uint16_t TextColor, uint16_t GridColor, uint16_t AxisColor, uint16_t BackColor,uint16_t PlotColor, const TFont &TitleFont , const TFont &AxisFont ) {
 
-	void showTitle(bool val);
+        strncpy(t, Title, 30);
+        strncpy(xa, XAxis, 30);
+        strncpy(ya, YAxis, 30);
 
-	void showLegend(bool val);
+        tf = TitleFont;
+        af = AxisFont;
+        tc = TextColor;
 
-	void showAxisLabels(bool val);
+        gc = GridColor;
+        ac = AxisColor;
+        bc = BackColor;
+        pc = PlotColor;
 
-	void drawLegend(byte Location);
+        st = true;
+        sl = true;
+        sal = true;
+        sxs = true;
+        sys = true;
 
-	void showXScale(bool val);
+        Delta = XHigh - XLow;
 
-	void showYScale(bool val);
+        RedrawGraph = true;
 
-	void setMarkerSize(int ID, byte val);
+        TextHeight = tf.cap_height;
 
-	void setLineThickness(int ID, byte val);
+    }
 
-	void setTitle(const char *Title);
+    int add(const char *name, uint16_t color){
 
-	void setXAxisName(const char *Name);
+        // max number of plots is 10
+        if (ID >= 10){
+            return -1;
+        }
+        pdia[ID] = 0;
+        linet[ID] = 1;
+        strncpy(dl[ID], name, 30);
+        dc[ID] = color;
+        HaveFirstPoint[ID] = false;
+        ID++;
+        return ID-1;
 
-	void setYAxisName(const char *Name);
+    }
 
-	void drawGraph();
+    void setX(float xpoint){
+
+        x = xpoint;
+
+    }
+
+    void showAxisLabels(bool val){
+
+        sal = val;
+
+    }
+
+    void plot(int cID, float y){
+
+        if (RedrawGraph){
+            RedrawGraph = false;
+            drawGraph();
+        }
+
+        // plot the data
+        XPoint = MapFloat(x, XLow, XHigh, gx, gx + gw);
+        YPoint = MapFloat(y, YHigh, YLow, gy - gh, gy);
+
+        if ((YPoint > gy)) {
+            YPoint = gy;
+        }
+        if (YPoint < (gy - gh)) {
+            YPoint = gy - gh;
+        }
+
+        if ((XPoint > gx) && (XPoint < gx + gw)) {
+            if (HaveFirstPoint[cID]){
+                for(j = 0; j < linet[cID]; j++){
+                    d->drawLine(oXPoint[cID], oYPoint[cID]+j, XPoint, YPoint+j, dc[cID]);
+
+                }
+
+                // d->drawLine(oXPoint[cID], oYPoint[cID], XPoint, YPoint, dc[cID]);
+                if ( pdia[cID] > 1){
+                    d->fillCircle(XPoint, YPoint, pdia[cID],  dc[cID]);
+                    // d->fillRect(XPoint -  pdia[cID]/2, YPoint-  pdia[cID]/2, pdia[cID],   pdia[cID], dc[cID]);
+                }
+            }
+        }
+
+        HaveFirstPoint[cID] = true;
+        oYPoint[cID] = YPoint;
+        oXPoint[cID] = XPoint;
+
+        // test to see if we need to redraw
+
+        if (XPoint + 2 > gx + gw) {
+            Delta = XHigh - (XLow);
+            XLow = XHigh;
+            XHigh = XHigh + Delta;
+            RedrawGraph = true;
+            HaveFirstPoint[cID] = false;
+
+        }
+
+    }
+
+    void setMarkerSize(int cID, byte val){
+
+        pdia[cID] = val;
+
+    }
+
+    void setLineThickness(int cID, byte val){
+
+        linet[cID] = val;
+
+    }
+
+    void setTitle(const char *Title){
+
+        strncpy(t, Title, 30);
+
+    }
+
+    void setXAxisName(const char *XAxis){
+
+        strncpy(xa, XAxis, 30);
+
+    }
+
+
+    void setYAxisName(const char *YAxis){
+
+        strncpy(ya, YAxis, 30);
+
+    }
+
+
+    void drawLegend(byte Location){
+
+        tl = Location;
+
+    }
+
+
+
+    void drawGraph() {
+
+
+        RedrawGraph = false;
+        byte to = 0;
+
+        float xDiv =  ((XHigh-XLow)/XInc);
+        float yDiv = ((YHigh-YLow)/YInc);
+
+
+
+        float ylen = gh /  yDiv;
+        float xlen = gw / xDiv;
+
+        d->setTextColor(tc, bc);
+
+        // draw title
+        if (st){
+            d->setFont(tf);
+            d->setCursor(gx , gy - gh - TextHeight-10);
+            d->print(t);
+        }
+
+        // draw grid lines
+        // first blank out xscale for redrawing
+        d->fillRect(gx-10, gy+2, gw+20,25, bc);
+        d->setFont(af);
+        d->fillRect(gx, gy - gh-4, gw, gh+8, bc);
+        d->fillRect(gx, gy - gh, gw, gh, pc);
+
+        // draw vertical lines
+        for (j = 0; j <= xDiv; j++) {
+            if (j > 0) {
+                d->drawFastVLine(gx + ((0+j) * xlen), gy - gh, gh, gc);
+            }
+            if (xDiv < .1) {
+                XDec = 2;
+            }
+            else if (xDiv < 1) {
+                XDec = 1;
+            }
+            else {
+                XDec = 0;
+            }
+
+            //get text offsets
+
+
+            if (XLow+(XInc*j) < 10){
+                to = 3;
+            }
+            else if (XLow+(XInc*j) < 100) {
+                to = 7;
+            }
+            else if (XLow+(XInc*j) < 1000){
+                to = 11;
+            }
+
+            if (sxs){
+                dtostrf(XLow+(XInc*j), 0, XDec,text);
+                d->setCursor(gx + (j * xlen) - to, gy+5);
+                d->print(text);
+            }
+        }
+
+        d->fillRect(gx-30,  gy -gh-TextHeight+4, 27, gh+TextHeight, bc);
+
+        // draw horizontal lines
+        for (i = 0; i <= yDiv; i++) {
+
+            d->drawFastHLine(gx, gy - (ylen * (0+i)), gw, gc);
+
+            if (YInc < .1) {
+                YDec = 2;
+            }
+            else if (YInc < 1) {
+                YDec = 1;
+            }
+            else {
+                YDec = 0;
+            }
+            if (sys){
+
+                dtostrf(YLow+(YInc*i), 0, YDec,text);
+                d->setCursor(gx-40, gy - (ylen * i)-8);
+                d->print(text);
+            }
+        }
+
+        // put the y axis at the zero point
+        if ((YLow < 0) &&  (YHigh > 0)) {
+            YPoint = MapFloat(0, YHigh, YLow, gy - gh, gy);
+        }
+        else {
+            YPoint = MapFloat(YLow, YHigh, YLow, gy - gh, gy);
+        }
+
+
+        d->drawFastHLine(gx,  YPoint, gw, ac);
+        d->drawFastHLine(gx,  YPoint-1, gw, ac);
+
+        d->drawFastVLine(gx-1, gy - gh, gh+1, ac);
+        d->drawFastVLine(gx-2, gy - gh, gh+1, ac);
+
+
+        // draw legend
+        if (sal){
+            // draw y label
+            oOrientation = d->getRotation();
+            d->setTextColor(tc, bc);
+            d->setRotation(oOrientation - 1);
+            d->setCursor(d->width()-gy,gx-44);
+            d->print(ya);
+            d->setRotation(oOrientation);
+
+
+            // draw x label
+            d->setTextColor(tc, bc);
+            d->setCursor(gx,gy+ TextHeight+5);
+            d->print(xa);
+        }
+        if (sl) {
+            // draw legend
+            StartPointX = gx-20;
+
+            if (tl == LOCATION_TOP){
+                StartPointY = gy - gh;
+            }
+            else if (tl == LOCATION_BOTTOM) {
+                StartPointY = d->getCursorY() +13;
+            }
+
+            for (k = 0; k <= ID; k++){
+                d->setCursor(StartPointX, StartPointY);
+                d->print(dl[k]);
+                StartPointX = d->getCursorX();
+
+                for (j= 0; j < pdia[k]; j++){
+                    d->drawFastHLine(StartPointX+3, StartPointY+TextHeight/4 + j , 20, dc[k]);
+                    //d->drawFastHLine(StartPointX+3, StartPointY+TextHeight/4 , 20, dc[k]);
+                    //d->drawFastHLine(StartPointX+3, StartPointY+TextHeight/4 + 1, 20, dc[k]);
+
+                }
+                StartPointX += 30;
+            }
+
+        }
+
+    }
+
+    void setYAxis(float Ylow, float Yhigh, float Yinc){
+
+        YLow = Ylow;
+        YHigh = Yhigh;
+        YInc = Yinc;
+        RedrawGraph = true;
+    }
+
+    void setXAxis(float XAxisLow, float XAxisHigh, float XAxisInc){
+
+        XLow = XAxisLow;
+        XHigh = XAxisHigh;
+        XInc = XAxisInc;
+        RedrawGraph = true;
+    }
+
+    void showTitle(bool val){
+        st = val;
+    }
+
+    void showLegend(bool val){
+        sl = val;
+    }
+    void showXScale(bool val){
+        sxs = val;
+    }
+    void showYScale(bool val){
+        sys = val;
+    }
 
 private:
 
-		ILI9341_t3			*d;
-		ILI9341_t3_font_t	tf;
-		ILI9341_t3_font_t	af;
+		TDisplay			*d;
+		TFont	tf;
+		TFont	af;
 		int ID = 0;
 		float x, y;
 		float	i, j;
@@ -343,25 +879,171 @@ private:
 		byte pdia[20];
 		byte linet[20];
 
-		float MapFloat(float x, float in_min, float in_max, float out_min, float out_max);
+        float MapFloat(float x, float in_min, float in_max, float out_min, float out_max) {
+            return (x - in_min) * (out_max - out_min) / (in_max - in_min) + out_min;
+        }
+
 
 
 };
 
+template <typename TDisplay, typename TFont>
 class Dial {
 public:
-	Dial(ILI9341_t3 *disp, int CenterX, int CenterY, int DialRadius, float LowVal , float HiVal , float ValInc, float SweepAngle);
-	
-	void init(uint16_t NeedleColor, uint16_t DialColor, uint16_t TextColor, uint16_t TickColor, const char *Title, const ILI9341_t3_font_t &TitleFont , const ILI9341_t3_font_t &DataFont );
 
-	void draw(float val);
-		
+    Dial(TDisplay *disp, int CenterX, int CenterY, int DialRadius, float LowVal , float HiVal , float ValInc, float SweepAngle){
+
+        degtorad = .0174532778;
+
+        d = disp;
+
+        cx = CenterX;
+        cy = CenterY;
+        dr = DialRadius;
+        lv = LowVal;
+        hv = HiVal;
+        inc = ValInc;
+        sa = SweepAngle;
+
+        // store initial values
+        // this looks silly but we don't have needle size calculated yet but to keep needle from first draw being weird, just make a dot at the center
+        px = CenterX;
+        py = CenterY;
+        pix = CenterX;
+        piy = CenterY;
+        plx = CenterX;
+        ply = CenterY;
+        prx = CenterX;
+        pry = CenterY;
+
+        Redraw = true;
+
+    }
+
+    void init(uint16_t NeedleColor, uint16_t DialColor, uint16_t TextColor, uint16_t TickColor, const char *Title, const TFont &TitleFont , const TFont &DataFont ) {
+
+        tf = TitleFont;
+        df = DataFont;
+        strncpy(t, Title, 10);
+        nc = NeedleColor;
+        dc = DialColor;
+        tc = TextColor;
+        ic = TickColor;
+
+    }
+
+    void draw(float Val) {
+
+
+        // draw the dial only one time--this will minimize flicker
+        if ( Redraw == true) {
+            Redraw = false;
+            d->fillCircle(cx, cy, dr , dc);
+            d->drawCircle(cx, cy, dr, ic);
+            d->drawCircle(cx, cy, dr - 1, ic);
+        }
+
+        // draw the current value
+        d->setFont(df);
+        d->setTextColor(tc, dc);
+        d->setCursor(cx - 25, cy + 20 );
+        //disp.println(Format(curval, dig, dec));
+        // center the scale about the vertical axis--and use this to offset the needle, and scale text
+        offset = (270 +  (sa / 2)) * degtorad;
+        // find hte scale step value based on the hival low val and the scale sweep angle
+        // deducting a small value to eliminate round off errors
+        // this val may need to be adjusted
+        stepval = (inc) * (sa / (float (hv - lv)));
+        // draw the scale and numbers
+        // note draw this each time to repaint where the needle was
+
+        // first draw the previous needle in dial color to hide it
+        d->fillTriangle (pix, piy,plx, ply, prx, pry, dc);
+
+        for (i = 0.0; i <= (sa + 0.0001); i += stepval) {
+
+            angle = ( i  * degtorad);
+            angle = offset - angle ;
+            ox =  (float) (dr - 2) * cos(angle) + cx;
+            oy =  (float) (dr - 2) * sin(angle) + cy;
+            ix =  (float) (dr - 10) * cos(angle) + cx;
+            iy =  (float) (dr - 10) * sin(angle) + cy;
+            tx =  (float) (dr - 30) * cos(angle) + cx;
+            ty =  (float) (dr - 30) * sin(angle) + cy;
+            dx =  (float) (dr - 20) * cos(angle) + cx;
+            dy =  (float) (dr - 20) * sin(angle) + cy;
+
+            d->drawLine(ox, oy, ix, iy, ic);
+
+
+            if (hv < .1) {
+                dec = 3;
+            }
+            else  if (hv <= 1) {
+                dec = 2;
+            }
+            else  if (hv <= 10) {
+                dec = 1;
+            }
+            else   {
+                dec = 0;
+            }
+
+            data = hv - ( i * (inc / stepval)) ;
+            dtostrf(data, 0, dec,buf);
+            tLen = d->strPixelLen(buf);
+            tHi = df.cap_height;
+            d->setCursor(dx - (tLen/2), dy - (tHi/2));
+
+            d->print(buf);
+
+
+        }
+
+        // compute and draw the needle
+        angle = (sa * (1.0 - (((Val - lv) / (hv - lv)))));
+        angle = angle * degtorad;
+        angle = offset - angle  ;
+
+        // draw a triangle for the needle (compute and store 3 vertiticies)
+        // 5.0 is width of needle at center
+        ix =  (float)(dr - 10.0) * cos(angle) + cx;
+        iy =  (float)(dr - 10.0) * sin(angle) + cy;
+        lx =  6.0 * cos(angle - 90.0 * degtorad) + cx;
+        ly =  6.0 * sin(angle - 90.0 * degtorad) + cy;
+        rx =  6.0 * cos(angle + 90.0 * degtorad) + cx;
+        ry =  6.0 * sin(angle + 90.0 * degtorad) + cy;
+
+        // then draw the new needle in need color to display it
+        d->fillTriangle (ix, iy, lx, ly, rx, ry, nc);
+
+        // draw a cute little dial center
+        d->fillCircle(cx, cy, 8, tc);
+
+        // print the title
+        d->setTextColor(tc, dc);
+        d->setFont(tf);
+        tLen = d->strPixelLen(t);
+
+        d->setCursor(cx - tLen/2, cy + 10);
+        d->println(t);
+
+        //save all current to old so the previous dial can be hidden
+        pix = ix;
+        piy = iy;
+        plx = lx;
+        ply = ly;
+        prx = rx;
+        pry = ry;
+
+    }
+
 private:
 	
 	bool Redraw = true;
-	ILI9341_t3			*d;			
-	ILI9341_t3_font_t	tf;
-	ILI9341_t3_font_t	df;
+	TDisplay			*d;
+	TFont	tf;
+	TFont	df;
 	char t[10];
 	int cx;
 	int cy;
@@ -406,55 +1088,436 @@ private:
 
 };
 
-
-
-
-
+template <typename TDisplay>
 class SliderH {
 
  public:
+    SliderH(TDisplay *Display)
 
-	SliderH(ILI9341_t3 *Display);		// class constructor
-		
-	void init(uint16_t SliderX, uint16_t SliderY, uint16_t SliderW, float ScaleLow, float ScaleHi, float Scale, float Snap, uint16_t SliderColor, uint16_t BackgroundColor, uint16_t HandleColor);		// initializer
-  
-	void draw(float val);					// method to draw complete slider
-		
-	bool slide(float ScreenX, float ScreenY);			// method to move handle as user drags finger over handle, this method automatically looks for a valid range press
-  
-	void setColors(uint16_t SliderColor, uint16_t BackgroundColor, uint16_t HandleColor);		// way to reset colors (useful for drawing enabled or disabled)
+    {
+        // map arguements to class variables
+        d = Display;
+    }
 
-	void setHandleColor(uint16_t HandleColor);	// method to just draw the handle (useful for showing handle in green for OK value
+    void init(uint16_t SliderX, uint16_t SliderY, uint16_t SliderW, float ScaleLow, float ScaleHi, float ScaleSize, float SnapSize, uint16_t SliderColor, uint16_t BackgroundColor, uint16_t HandleColor ) {
+        // map arguements to class variables
+        sl = ScaleLow;
+        sh = ScaleHi;
+        sc = 0.0;
+        sn = 0.0;
+        l = SliderX;
+        t = SliderY;
+        w = SliderW;
+        bt = 3;
+        sColor = SliderColor;
+        bColor = BackgroundColor;
+        hColor = HandleColor;
+        debounce = TFT_DEBOUNCE;
+        dsColor = C_DISABLE_MED;
+        dhColor = C_DISABLE_LIGHT;
+        enabled = true;
+        visible = true;
+        ox = -1;
+        colorscale = true;
+        handlesize = SLIDER_HANDLE_SIZE;
+        handlewidth = handlesize / 2;
+        handleshape = HANDLE_CIRCLE;
 
-	void setDisableColor(uint16_t HandleColor, uint16_t SliderColor);	// method to just draw the handle (useful for showing handle in green for OK value
+        if (ScaleSize != 0) {
+            sc =  (sh - sl ) /  ScaleSize ;
+            ce = abs(sl / ScaleSize);
+        }
+        if (SnapSize != 0) {
+            sn = (sh - sl) / SnapSize;
+        }
 
-	void setHandleSize(int size);
+    }
 
-	void setHandleSize(int size, int width);
+    void resetScale(float ScaleLow, float ScaleHi, float ScaleSize, float SnapSize) {
 
-	void disable();
+        sl = ScaleLow;
+        sh = ScaleHi;
+        sc = 0.0;
+        sn = 0.0;
+        if (ScaleSize != 0) {
+            sc =  (sh - sl ) /  ScaleSize ;
+            ce = abs(sl / ScaleSize);
+        }
+        if (SnapSize != 0) {
+            sn = (sh - sl) / SnapSize;
+        }
 
-	void enable();
+    }
 
-	void show();
+    void setColors(uint16_t SliderColor, uint16_t BackgroundColor, uint16_t HandleColor) {
 
-	void hide();
+        // map arguements to class variables
+        sColor = SliderColor;
+        bColor = BackgroundColor;
+        hColor = HandleColor;
 
-        void setBarThickness(byte Thickness);
+    }
 
-	void setHandleShape(byte shape);
+    void  setHandleColor(uint16_t HandleColor) {
 
-	void drawSliderColor(bool color);
+        hColor = HandleColor;
 
-	void setPressDebounce(byte Debounce);
+    }
 
-	void resetScale(float ScaleLow, float ScaleHi, float Scale, float Snap);
+    void  setBarThickness(byte Thickness) {
+
+        bt = Thickness;
+
+    }
+
+    void  setDisableColor(uint16_t DisableHandleColor, uint16_t DisableSliderColor) {
+
+        dsColor = DisableSliderColor;
+        dhColor = DisableHandleColor;
+    }
+
+    void  enable() {
+
+        enabled = true;
+
+    }
+
+    void  disable() {
+
+        enabled = false;
+
+
+    }
+
+    void  show() {
+
+        visible = true;
+
+    }
+
+    void  hide() {
+
+        visible = false;
+
+    }
+
+    void  draw(float val) {
+
+        if (!visible){
+
+            if(!visible){
+                d->fillRect(l - handlesize , t - handlesize, w + (2*handlesize), handlesize * handlesize, bColor);
+            }
+            // no need to draw anything
+            return;
+        }
+
+        value = val;
+
+        if (enabled) {
+            tsColor = sColor;
+            thColor = hColor;
+            ssColor = sColor;
+        }
+        else {
+            tsColor = dsColor;
+            thColor = dhColor;
+            ssColor = dsColor;
+        }
+
+
+
+
+        ////////////////////////
+
+        // draw the slider
+        pos = MapFloat(value, (float) sl, (float)sh, (float) l, (float)(w+l) );
+        //////////////////////////
+        // seems odd to blank out old but of draw is called in .ino, need to clean up old stuff
+        if ((ox != pos) && (ox > 0)){
+            if (handleshape == HANDLE_CIRCLE) {
+                d->fillCircle(ox, t, handlesize/2, bColor);
+            }
+            else if (handleshape == HANDLE_SQUARE) {
+                d->fillRect(ox- (handlesize / 2), t - (handlesize / 2), handlesize, handlesize, bColor);
+            }
+            else if (handleshape == HANDLE_TRIANGLE_1) {
+                d->fillTriangle(ox - (handlesize / 2), t - handlesize, ox + (handlesize / 2), t - handlesize, ox,t, bColor);
+            }
+            else if (handleshape == HANDLE_TRIANGLE_2) {
+                d->fillTriangle(ox - (handlesize / 2), t + handlesize, ox + (handlesize / 2), t + handlesize, ox,t, bColor);
+            }
+            else if (handleshape == HANDLE_TRIANGLE_3) {
+                d->fillTriangle(ox - (handlesize / 2), t - handlesize, ox + (handlesize / 2), t - handlesize, ox,t, bColor);
+                d->fillTriangle(ox - (handlesize / 2), t + handlesize, ox + (handlesize / 2), t + handlesize, ox,t, bColor);
+            }
+            else if (handleshape == HANDLE_RECTANGLE) {
+                d->fillRect(ox- (handlewidth / 2), t - (handlesize / 2), handlewidth, handlesize, bColor);
+            }
+        }
+
+
+
+        if (colorscale){
+            d->fillRect(l, t-(bt/2), abs(pos-l), bt, thColor);
+            d->fillRect(pos, t-(bt/2), abs(w - pos + l), bt, tsColor);
+        }
+        else{
+            d->fillRect(l, t-(bt/2), w + 1, bt, ssColor);
+        }
+
+        // draw any tick marks
+        if (sc != 0.0) {
+            for (i = 0; i <= sc; i++){
+
+                d->fillRect((i * (w / sc) ) + l, t-3, 1, 7, tsColor);
+
+                if ((i == ce) | (i == 0) | (i == sc)) {
+                    d->fillRect((i * (w / sc)) + l-1, t - 3, 3, 7, tsColor);
+                }
+            }
+        }
+
+
+        // draw new handle
+        if (handleshape == HANDLE_CIRCLE) {
+            d->fillCircle(pos, t, handlesize/2, thColor);
+            d->drawCircle(pos, t, handlesize/2,tsColor);
+            d->drawCircle(pos, t, (handlesize/2) - 1,tsColor);
+        }
+        else if (handleshape == HANDLE_SQUARE) {
+            d->fillRect(pos- (handlesize / 2), t - (handlesize / 2), handlesize, handlesize, thColor);
+            d->drawRect(pos- (handlesize / 2), t - (handlesize / 2), handlesize, handlesize, tsColor);
+            d->drawRect(pos- (handlesize / 2)+1, t - (handlesize / 2)+1, handlesize-2, handlesize-2, tsColor);
+        }
+        else if (handleshape == HANDLE_TRIANGLE_1) {
+            d->fillTriangle(pos - (handlesize / 2), t - handlesize, pos + (handlesize / 2), t - handlesize, pos,t, thColor);
+            d->drawTriangle(pos - (handlesize / 2), t - handlesize, pos + (handlesize / 2), t - handlesize, pos,t, tsColor);
+        }
+        else if (handleshape == HANDLE_TRIANGLE_2) {
+            d->fillTriangle(pos - (handlesize / 2), t + handlesize, pos + (handlesize / 2), t + handlesize, pos,t, thColor);
+            d->drawTriangle(pos - (handlesize / 2), t + handlesize, pos + (handlesize / 2), t + handlesize, pos,t, tsColor);
+        }
+        else if (handleshape == HANDLE_TRIANGLE_3) {
+            d->fillTriangle(pos - (handlesize / 2), t - handlesize, pos + (handlesize / 2), t - handlesize, pos,t, thColor);
+            d->fillTriangle(ox - (handlesize / 2), t + handlesize, pos + (handlesize / 2), t + handlesize, pos,t, thColor);
+
+            d->drawTriangle(pos - (handlesize / 2), t - handlesize, pos + (handlesize / 2), t - handlesize, pos,t, tsColor);
+            d->drawTriangle(pos - (handlesize / 2), t + handlesize, pos + (handlesize / 2), t + handlesize, pos,t, tsColor);
+
+        }
+        else if (handleshape == HANDLE_RECTANGLE) {
+            d->fillRect(pos- (handlewidth / 2)  , t - (handlesize / 2)  , handlewidth, handlesize, thColor);
+            d->drawRect(pos- (handlewidth / 2)  , t - (handlesize / 2)  , handlewidth, handlesize, tsColor);
+            d->drawRect(pos- (handlewidth / 2)+1, t - (handlesize / 2)+1, handlewidth-2, handlesize-2, tsColor);
+        }
+        ox = pos;
+        pos = value;
+
+    }
+
+    bool  slide(float ScreenX,float ScreenY){
+
+        bool pressed = false;
+
+        x = ScreenX;
+        y = ScreenY;
+
+        if (!enabled) {
+            return pressed;
+        }
+
+        if (enabled) {
+            tsColor = sColor;
+            thColor = hColor;
+            ssColor = sColor;
+        }
+        else {
+            tsColor = dsColor;
+            thColor = dhColor;
+            ssColor = dsColor;
+        }
+
+        // Serial.print("sn "); Serial.println(sn);
+        if (sn != 0.0 ) {
+
+            x = x - l;
+            // Serial.print("x b "); Serial.println(x);
+            x = round( x / ( w / sn));
+            //Serial.print("x a "); Serial.println(x);
+            x = x * ( w / sn);
+            x = x + l;
+        }
+        else {
+            x = x;
+        }
+
+        // draw ball and scale
+        if (x != ox){
+
+            if ((x >= l) & (x <= (l + w))) {
+
+                if ((abs(y - t )) <= handlesize) {
+
+                    pressed = true;
+                    if (handleshape == HANDLE_CIRCLE) {
+                        d->fillCircle(ox, t, handlesize/2, bColor);
+                    }
+                    else if (handleshape == HANDLE_SQUARE) {
+                        d->fillRect(ox- (handlesize / 2), t - (handlesize / 2), handlesize, handlesize, bColor);
+                    }
+                    else if (handleshape == HANDLE_TRIANGLE_1) {
+                        d->fillTriangle(ox - (handlesize / 2), t - handlesize, ox + (handlesize / 2), t - handlesize, ox,t, bColor);
+                    }
+                    else if (handleshape == HANDLE_TRIANGLE_2) {
+                        d->fillTriangle(ox - (handlesize / 2), t + handlesize, ox + (handlesize / 2), t + handlesize, ox,t, bColor);
+                    }
+                    else if (handleshape == HANDLE_TRIANGLE_3) {
+                        d->fillTriangle(ox - (handlesize / 2), t - handlesize, ox + (handlesize / 2), t - handlesize, ox,t, bColor);
+                        d->fillTriangle(ox - (handlesize / 2), t + handlesize, ox + (handlesize / 2), t + handlesize, ox,t, bColor);
+                    }
+                    else if (handleshape == HANDLE_RECTANGLE) {
+                        d->fillRect(ox- (handlewidth/ 2), t - (handlesize / 2), handlewidth, handlesize, bColor);
+                    }
+
+                    if (colorscale){
+                        d->fillRect(l, t-(bt/2), x-l, bt, hColor);
+                        d->fillRect(x, t-(bt/2), w - x + l, bt, sColor);
+                    }
+                    else{
+                        d->fillRect(l, t-(bt/2), w+1, bt, ssColor);
+                    }
+
+
+                    if (sc != 0.0) {
+                        for (i = 0; i <= sc; i++){
+
+                            d->fillRect((i * (w / sc) ) + l, t-3, 1, 7, sColor);
+
+                            if ((i == ce) | (i == 0) | (i == sc)) {
+                                d->fillRect((i * (w / sc)) + l-1, t - 3, 3, 7, sColor);
+                            }
+                        }
+                    }
+
+                    if (handleshape == HANDLE_CIRCLE) {
+                        d->fillCircle(x, t, handlesize/2, hColor);
+                        d->drawCircle(x, t, handlesize/2,sColor);
+                        d->drawCircle(x, t, (handlesize/2) - 1,sColor);
+                    }
+                    else if (handleshape == HANDLE_SQUARE) {
+                        d->fillRect(x- (handlesize / 2), t - (handlesize / 2), handlesize, handlesize, hColor);
+                        d->drawRect(x- (handlesize / 2), t - (handlesize / 2), handlesize, handlesize, sColor);
+                        d->drawRect(x- (handlesize / 2)+1, t - (handlesize / 2)+1, handlesize-2, handlesize-2, sColor);
+                    }
+                    else if (handleshape == HANDLE_TRIANGLE_1) {
+                        d->fillTriangle(x - (handlesize / 2), t - handlesize, x + (handlesize / 2), t - handlesize, x,t, hColor);
+                        d->drawTriangle(x - (handlesize / 2), t - handlesize, x + (handlesize / 2), t - handlesize, x,t, sColor);
+                    }
+                    else if (handleshape == HANDLE_TRIANGLE_2) {
+                        d->fillTriangle(x - (handlesize / 2), t + handlesize, x + (handlesize / 2), t + handlesize, x,t, hColor);
+                        d->drawTriangle(x - (handlesize / 2), t + handlesize, x + (handlesize / 2), t + handlesize, x,t, sColor);
+                    }
+                    else if (handleshape == HANDLE_TRIANGLE_3) {
+                        d->fillTriangle(x - (handlesize / 2), t - handlesize, x + (handlesize / 2), t - handlesize, x,t, hColor);
+                        d->fillTriangle(x - (handlesize / 2), t + handlesize, x + (handlesize / 2), t + handlesize, x,t, hColor);
+
+                        d->drawTriangle(x - (handlesize / 2), t - handlesize, x + (handlesize / 2), t - handlesize, x,t, sColor);
+                        d->drawTriangle(x - (handlesize / 2), t + handlesize, x + (handlesize / 2), t + handlesize, x,t, sColor);
+
+                    }
+                    else if (handleshape == HANDLE_RECTANGLE) {
+                        d->fillRect(x- (handlewidth / 2)  , t - (handlesize / 2)  , handlewidth  , handlesize  , hColor);
+                        d->drawRect(x- (handlewidth / 2)  , t - (handlesize / 2)  , handlewidth  , handlesize  , sColor);
+                        d->drawRect(x- (handlewidth / 2)+1, t - (handlesize / 2)+1, handlewidth-2, handlesize-2, sColor);
+                    }
+                    ox = x;
+
+                    // get scaled val and pass back and store in the public variable in case anyone wants it
+
+                    pos = MapFloat(x, l, l + w, sl, sh);
+                    //Serial.print("pos "); Serial.println(pos);
+                    value = pos;
+                    //Serial.print("value "); Serial.println(value);
+                    delay(debounce);
+                }
+            }
+
+        }
+
+        return pressed;
+    }
+
+    void drawSliderColor(bool color){
+
+        colorscale = color;
+
+    }
+
+    void setHandleSize(int size){
+
+        if (size < 4) {
+            handlesize = 4;
+        }
+        else if (size > 40) {
+            handlesize = 40;
+        }
+        else {
+            handlesize = size;
+        }
+
+    }
+
+    void setHandleSize(int size, int width){
+
+        if (size < 4) {
+            handlesize = 4;
+        }
+        else if (size > 40) {
+            handlesize = 40;
+        }
+        else {
+            handlesize = size;
+        }
+
+        if (width < 4) {
+            handlewidth = 4;
+        }
+        else if (width > 40) {
+            handlewidth = 40;
+        }
+        else {
+            handlewidth = width;
+        }
+
+
+    }
+
+    void setHandleShape(byte shape){
+
+        if (shape < 0) {
+            handleshape = HANDLE_CIRCLE;
+        }
+        else if (shape > 6) {
+            handleshape = HANDLE_CIRCLE;
+        }
+        else {
+            handleshape = shape;
+        }
+
+    }
+
+    void setPressDebounce(byte Debounce) {
+
+        debounce = Debounce;
+
+    }
 
 	float value;
 
 private:
 
-	ILI9341_t3 *d;			// the display object
+	TDisplay *d;			// the display object
 	uint16_t sColor;		// the slider color
 	uint16_t bColor;		// the slider background color
 	uint16_t hColor;		// the sliders drag handle
@@ -483,56 +1546,389 @@ private:
 	byte handleshape;
 	bool visible;
 	bool colorscale;		// flag to draw slider in handle color
-	float MapFloat(float x, float fromLow, float fromHigh, float toLow, float toHigh); // why Arduino has no mapping for floats is beyond me, here it is...
+    float MapFloat(float val, float fromLow, float fromHigh, float toLow, float toHigh) {
+        return (val - fromLow) * (toHigh - toLow) / (fromHigh - fromLow) + toLow;
+    }
 	byte debounce;
 	
   };
 
+template <typename TDisplay>
 class SliderV {
+public:
+    SliderV(TDisplay *Display) : d(Display) {}
+    void init(uint16_t SliderX, uint16_t SliderY, uint16_t SliderH, float ScaleLow, float ScaleHi, float ScaleSize, float SnapSize,uint16_t SliderColor, uint16_t BackgroundColor, uint16_t HandleColor ) {
 
- public:
+        // map arguements to class variables
+        sl = ScaleLow;
+        sh = ScaleHi;
+        sc = 0.0;
+        sn = 0.0;
+        oy = -1;
+        colorscale = true;
+        handlesize = SLIDER_HANDLE_SIZE;
+        handlewidth = handlesize / 2;
+        handleshape = HANDLE_CIRCLE;
+        enabled = true;
+        visible = true;
+        l = SliderX;
+        t = SliderY;
+        h = SliderH;
+        bt = 3;
+        sColor = SliderColor;
+        bColor = BackgroundColor;
+        hColor = HandleColor;
+        debounce = TFT_DEBOUNCE;
+        dsColor = C_DISABLE_MED;
+        dhColor = C_DISABLE_LIGHT;
 
-	SliderV(ILI9341_t3 *Display); // class constructor
-  
-	void init(uint16_t SliderX, uint16_t SliderY, uint16_t SliderH, float ScaleLow, float ScaleHi, float scale, float snap, uint16_t SliderColor, uint16_t BackgroundColor, uint16_t HandleColor);	// initializer
-   
-	void draw(float val);						// method to draw complete slider
-   
-	bool slide(uint16_t ScreenX, uint16_t ScreenY);	   // method to move handle as user drags finger over handle, this method automatically looks for a valid range press
-    
-	void setColors(uint16_t SliderColor, uint16_t BackgroundColor, uint16_t HandleColor);	// way to reset colors (useful for drawing enabled or disabled)
+        // compute scale increments and snap increments
+        if (ScaleSize != 0) {
+            sc = (sh - sl) / ScaleSize;
+            ce = abs(sh / ScaleSize);
+        }
+        if (SnapSize != 0) {
+            sn = (sh - sl) / SnapSize;
+        }
 
-	void setHandleColor(uint16_t HandleColor);		// method to just draw the handle (useful for showing handle in green for OK value
+    }
+    void setColors(uint16_t SliderColor, uint16_t BackgroundColor, uint16_t HandleColor) {
 
-	void setHandleSize(int val);
+        // map arguements to class variables
+        sColor = SliderColor;
+        bColor = BackgroundColor;
+        hColor = HandleColor;
 
-	void setHandleSize(int size, int width);
-	
-	void setHandleShape(byte val);
+    }
+    void  draw(float val) {
 
-	void drawSliderColor(bool val);
 
-	void setDisableColor(uint16_t HandleColor, uint16_t SliderColor);	// method to just draw the handle (useful for showing handle in green for OK value
+        if  (!visible) {
 
-	void setScale(float ScaleLow, float ScaleHi, float scale = 0.0, float snap= 0.0);
+            if (!visible) {
+                d->fillRect(l - handlesize , t - (handlesize / 2), handlesize * 2, h+ handlesize, bColor); // erase it
+            }
+            return;
+        }
 
-	void setBarThickness(byte Thickness);
+        value = val;
 
-	void disable();
+        if (enabled) {
+            tsColor = sColor;
+            thColor = hColor;
+        }
+        else {
+            tsColor = dsColor;
+            thColor = dhColor;
+        }
 
-	void enable();
+        pos = MapFloat(value, (float) sl, (float)sh, (float)(t + h), (float)t );
 
-	void show();
+        // blannk ouut any previous--note draw can be called w/o slide in cases where sliders are tied together
 
-	void hide();
+        if ((pos != oy) && (oy >= 0)) {
+            // blank out the old one
+            if (handleshape == HANDLE_CIRCLE) {
+                d->fillCircle(l, oy, handlesize/2, bColor);
+            }
+            else if (handleshape == HANDLE_SQUARE) {
+                d->fillRect(l - (handlesize / 2), oy- (handlesize / 2), handlesize, handlesize, bColor);
+            }
+            else if (handleshape == HANDLE_TRIANGLE_1) {
+                // weird i know but need to draw the black out slightly larger due to round off errors
+                d->fillTriangle(l - handlesize, oy- (handlesize / 2)-1, l - handlesize, oy+ (handlesize / 2)+1,l+1 , oy  , bColor);
+            }
+            else if (handleshape == HANDLE_TRIANGLE_2) {
+                // weird i know but need to draw the black out slightly larger due to round off errors
+                d->fillTriangle(l + handlesize, oy- (handlesize / 2)-1, l + handlesize, oy+ (handlesize / 2)+1,l-1 , oy  , bColor);
+            }
+            else if (handleshape == HANDLE_TRIANGLE_3) {
+                // weird i know but need to draw the black out slightly larger due to round off errors
+                d->fillTriangle(l - handlesize, oy- (handlesize / 2)-1, l - handlesize, oy+ (handlesize / 2)+1,l+1 , oy  , bColor);
+                d->fillTriangle(l + handlesize, oy- (handlesize / 2)-1, l + handlesize, oy+ (handlesize / 2)+1,l-1 , oy  , bColor);
+            }
+            else if (handleshape == HANDLE_RECTANGLE) {
+                // weird i know but need to draw the black out slightly larger due to round off errors
+                d->fillRect(l - (handlesize / 2), oy- (handlewidth / 2), handlesize, handlewidth, bColor);
+            }
 
-	void setPressDebounce(byte Debounce);
+        }
 
+        if (colorscale){
+            d->fillRect(l - (bt/2) , t, bt, pos - t, tsColor); // draw new slider
+            d->fillRect(l - (bt/2) , pos, bt, h - pos + t, thColor); // draw new slider
+        }
+        else {
+            d->fillRect(l - (bt/2), t, bt, h, tsColor);
+        }
+
+        if (sc != 0.0) {
+            for (i = 0; i <= sc; i++){
+
+                d->fillRect(l - 3,(i * (h / sc) ) + t, 7, 1, tsColor);
+
+                if ((i == ce) || (i == 0) || (i == sc)) {
+                    d->fillRect(l - 3, (i * (h / sc)) + t, 7, 4, tsColor);
+                }
+            }
+        }
+
+
+
+
+        if (handleshape == HANDLE_CIRCLE) {
+            d->fillCircle(l,pos,handlesize/2,thColor);
+            d->drawCircle(l,pos,handlesize/2,tsColor);
+            d->drawCircle(l,pos,(handlesize/2)-1,tsColor);
+        }
+        else if (handleshape == HANDLE_SQUARE) {
+            d->fillRect(l - (handlesize / 2), pos- (handlesize / 2), handlesize, handlesize, thColor);
+            d->drawRect(l - (handlesize / 2),pos- (handlesize / 2),handlesize, handlesize,tsColor);
+            d->drawRect(l - (handlesize / 2) +1,pos- (handlesize / 2)+1,handlesize-2,handlesize-2,tsColor);
+        }
+
+        else if (handleshape == HANDLE_TRIANGLE_1) {
+            d->fillTriangle(l - handlesize,	  pos- (handlesize / 2), l - handlesize,   pos+ (handlesize / 2),l ,  pos , thColor);
+            d->drawTriangle(l - handlesize,   pos- (handlesize / 2), l - handlesize,   pos+ (handlesize / 2),l ,  pos , tsColor);
+        }
+        else if (handleshape == HANDLE_TRIANGLE_2) {
+            d->fillTriangle(l + handlesize,	  pos- (handlesize / 2), l + handlesize,   pos+ (handlesize / 2),l ,  pos , thColor);
+            d->drawTriangle(l + handlesize,   pos- (handlesize / 2), l + handlesize,   pos+ (handlesize / 2),l ,  pos , tsColor);
+        }
+        else if (handleshape == HANDLE_TRIANGLE_3) {
+            d->fillTriangle(l - handlesize,	  pos- (handlesize / 2), l - handlesize,   pos+ (handlesize / 2),l ,  pos , thColor);
+            d->fillTriangle(l + handlesize,	  pos- (handlesize / 2), l + handlesize,   pos+ (handlesize / 2),l ,  pos , thColor);
+            d->drawTriangle(l - handlesize,   pos- (handlesize / 2), l - handlesize,   pos+ (handlesize / 2),l ,  pos , tsColor);
+            d->drawTriangle(l + handlesize,   pos- (handlesize / 2), l + handlesize,   pos+ (handlesize / 2),l ,  pos , tsColor);
+        }
+        else if (handleshape == HANDLE_RECTANGLE) {
+            d->fillRect(l - (handlesize / 2),   pos- (handlewidth / 2),  handlesize,  handlewidth,  thColor);
+            d->drawRect(l - (handlesize / 2),   pos- (handlewidth / 2),  handlesize,  handlewidth,  tsColor);
+            d->drawRect(l - (handlesize / 2) +1,pos- (handlewidth / 2)+1,handlesize-2,handlewidth-2,tsColor);
+        }
+        oy = pos;
+
+        pos = value;
+
+
+    }
+    bool slide(uint16_t ScreenX, uint16_t ScreenY){
+
+        bool pressed = false;
+
+        x = ScreenX;
+        y = ScreenY;
+
+        if ((!enabled) || (!visible)) {
+            //return pos;
+            return pressed;
+        }
+
+        if (sn != 0.0) {
+            y = y - t;
+            y =  (y /  (h / sn));
+            y = (y *  (h / sn)) + t;
+        }
+
+        if (y != oy){
+
+            if (abs(x -l ) <= handlesize) {
+
+                if ((y >= t) & (y <= (t + h))) {
+                    pressed = true;
+
+                    // it's in rage of ball
+
+                    // blank out the old one
+                    if (handleshape == HANDLE_CIRCLE) {
+                        d->fillCircle(l, oy, handlesize/2, bColor);
+                    }
+                    else if (handleshape == HANDLE_SQUARE) {
+                        d->fillRect(l - (handlesize / 2), oy- (handlesize / 2), handlesize, handlesize, bColor);
+                    }
+                    else if (handleshape == HANDLE_TRIANGLE_1) {
+                        // weird i know but need to draw the black out slightly larger due to round off errors
+                        d->fillTriangle(l - handlesize, oy- (handlesize / 2)-1, l - handlesize, oy+ (handlesize / 2)+1,l+1 , oy  , bColor);
+                    }
+                    else if (handleshape == HANDLE_TRIANGLE_2) {
+                        // weird i know but need to draw the black out slightly larger due to round off errors
+                        d->fillTriangle(l + handlesize, oy- (handlesize / 2)-1, l + handlesize, oy+ (handlesize / 2)+1,l-1 , oy  , bColor);
+                    }
+                    else if (handleshape == HANDLE_TRIANGLE_3) {
+                        // weird i know but need to draw the black out slightly larger due to round off errors
+                        d->fillTriangle(l - handlesize, oy- (handlesize / 2)-1, l - handlesize, oy+ (handlesize / 2)+1,l+1 , oy  , bColor);
+                        d->fillTriangle(l + handlesize, oy- (handlesize / 2)-1, l + handlesize, oy+ (handlesize / 2)+1,l-1 , oy  , bColor);
+                    }
+                    else if (handleshape == HANDLE_RECTANGLE) {
+                        d->fillRect(l - (handlesize / 2), oy- (handlewidth / 2), handlesize, handlewidth, bColor);
+                    }
+                    // draw slider 
+                    if (colorscale){
+                        d->fillRect(l - (bt/2) , t, bt, y - t, sColor); // draw new slider
+                        d->fillRect(l - (bt/2) , y, bt, h - y + t, hColor); // draw new slider
+                    }
+                    else {
+                        d->fillRect(l - (bt/2), t, bt, h, sColor);
+                    }
+
+                    // draw tick marks
+                    if (sc != 0.0) {
+                        for (i = 0; i <= sc; i++){
+
+                            d->fillRect(l - 3,(i * (h / sc) ) + t, 7, 1, sColor);
+
+                            if ((i == ce) | (i == 0) | (i == sc)) {
+                                d->fillRect(l - 3, (i * (h / sc)) + t, 7, 4, sColor);
+                            }
+                        }
+                    }
+                    // draw new handle
+                    if (handleshape == HANDLE_CIRCLE) {
+                        d->fillCircle(l,y,handlesize/2,hColor);
+                        d->drawCircle(l,y,handlesize/2,sColor);
+                        d->drawCircle(l,y,(handlesize/2)-1,sColor);
+                    }
+                    else if (handleshape == HANDLE_SQUARE) {
+                        d->fillRect(l - (handlesize / 2), y- (handlesize / 2), handlesize, handlesize, hColor);
+                        d->drawRect(l - (handlesize / 2),y- (handlesize / 2),handlesize, handlesize,sColor);
+                        d->drawRect(l - (handlesize / 2) +1,y- (handlesize / 2)+1,handlesize-2,handlesize-2,sColor);
+                    }
+                    else if (handleshape == HANDLE_TRIANGLE_1) {
+                        d->fillTriangle(l - handlesize,	  y- (handlesize / 2), l - handlesize, y+ (handlesize / 2) ,l ,  y , hColor);
+                        d->drawTriangle(l - handlesize,   y- (handlesize / 2), l - handlesize, y+ (handlesize / 2) ,l ,  y , sColor);
+                    }
+                    else if (handleshape == HANDLE_TRIANGLE_2) {
+                        d->fillTriangle(l + handlesize,	  y- (handlesize / 2), l + handlesize, y+ (handlesize / 2) ,l ,  y , hColor);
+                        d->drawTriangle(l + handlesize,   y- (handlesize / 2), l + handlesize, y+ (handlesize / 2) ,l ,  y , sColor);
+                    }
+                    else if (handleshape == HANDLE_TRIANGLE_3) {
+                        d->fillTriangle(l - handlesize,	  y- (handlesize / 2), l - handlesize, y+ (handlesize / 2) ,l ,  y , hColor);
+                        d->fillTriangle(l + handlesize,	  y- (handlesize / 2), l + handlesize, y+ (handlesize / 2) ,l ,  y , hColor);
+                        d->drawTriangle(l - handlesize,   y- (handlesize / 2), l - handlesize, y+ (handlesize / 2) ,l ,  y , sColor);
+                        d->drawTriangle(l + handlesize,   y- (handlesize / 2), l + handlesize, y+ (handlesize / 2) ,l ,  y , sColor);
+                    }
+                    else if (handleshape == HANDLE_RECTANGLE) {
+                        d->fillRect(l - (handlesize / 2),   y- (handlewidth / 2),  handlesize,   handlewidth, hColor);
+                        d->drawRect(l - (handlesize / 2),   y- (handlewidth / 2),  handlesize,   handlewidth,sColor);
+                        d->drawRect(l - (handlesize / 2) +1,y- (handlewidth / 2)+1,handlesize-2, handlewidth-2,sColor);
+                    }
+                    oy = y;
+
+                    // get scaled val and pass back and store in the public variable--in case anyone needs easy access...
+
+                    pos = MapFloat(y, t, (t + h), sh, sl);
+                    value = pos;
+                    delay(debounce);
+                }
+            }
+        }
+        //return pos;
+        return pressed;
+    }
+    void  setHandleColor(uint16_t HandleColor) {
+
+        hColor = HandleColor;
+
+    }
+    void drawSliderColor(bool state){
+
+        colorscale = state;
+
+    }
+    void setBarThickness(byte Thickness){
+
+        bt = Thickness;
+
+
+    }
+    void  setDisableColor(uint16_t HandleColor, uint16_t SliderColor) {
+
+        dsColor = SliderColor;
+        dhColor = HandleColor;
+
+    }
+    void setScale(float ScaleLow, float ScaleHi, float ScaleSize, float SnapSize ) {
+
+        // map arguements to class variables
+        sl = ScaleLow;
+        sh = ScaleHi;
+        sc = 0.0;
+        sn = 0.0;
+        // compute scale increments and snap increments
+        if (ScaleSize != 0) {
+            sc = (sh - sl) / ScaleSize;
+            ce = abs(sh / ScaleSize);
+        }
+        if (SnapSize != 0) {
+            sn = (sh - sl) / SnapSize;
+        }
+
+    }
+    void  enable() {
+        enabled = true;
+    }
+    void  disable() {
+        enabled = false;
+    }
+    void  show() {
+        visible = true;
+    }
+    void  hide() {
+        visible = false;
+    }
+    void setHandleSize(int value){
+        if (value < 4) {
+            handlesize = 4;
+        }
+        else if (value > 100) {
+            handlesize = 100;
+        }
+        else {
+            handlesize = value;
+        }
+    }
+    void setHandleSize(int value, int width){
+
+        if (value < 4) {
+            handlesize = 4;
+        }
+        else if (value > 40) {
+            handlesize = 40;
+        }
+        else {
+            handlesize = value;
+        }
+
+        if (width < 4) {
+            handlewidth = 4;
+        }
+        else if (width > 100) {
+            handlewidth = 100;
+        }
+        else {
+            handlewidth= width;
+        }
+
+    }
+    void setHandleShape(byte value){
+        if (value < 0) {
+            handleshape = HANDLE_CIRCLE;
+        }
+        else if (value > 6) {
+            handleshape = HANDLE_CIRCLE;
+        }
+        else {
+            handleshape = value;
+        }
+
+    }
+    void setPressDebounce(byte Debounce) {
+        debounce = Debounce;
+    }
 	float value;
 
 private:
-
-	ILI9341_t3 *d;			// the display object
+	TDisplay *d;			// the display object
 	uint16_t sColor;		// the slider color
 	uint16_t bColor;		// the slider background color
 	uint16_t hColor;		// the sliders drag handle
@@ -557,8 +1953,10 @@ private:
 	float i;				// loop counter
 	byte tl;
 	bool colorscale;		// flag to draw slider in handle color
-	float MapFloat(float x, float fromLow, float fromHigh, float toLow, float toHigh);// why Arduino has no mapping for floats is beyond me, here it is...
-	int tLen, tHi;
+    float MapFloat(float val, float fromLow, float fromHigh, float toLow, float toHigh) {
+        return (val - fromLow) * (toHigh - toLow) / (fromHigh - fromLow) + toLow;
+    }
+    int tLen, tHi;
 	int handlesize;
 	int handlewidth;
 	byte handleshape;
@@ -567,23 +1965,106 @@ private:
 	byte debounce;
   };
 
+template <typename TDisplay>
 class SliderOnOff {
 
  public:
-	
-	SliderOnOff(ILI9341_t3 *display, uint16_t SliderX, uint16_t SliderY, uint16_t SliderW, uint16_t SliderH, uint16_t SliderColor, uint16_t BackColor, uint16_t OnColor, uint16_t OffColor);// class constructor
-  
-	void draw(bool state);			// method to draw complete slider
-   
-	bool slide(float ScreenX,float ScreenY);	// method to move handle as user drags finger over handle, this method automatically looks for a valid range press
 
-	bool changed();						// method to return if state change, useful for determining if a something should be done but not done unless state change
+    SliderOnOff(TDisplay *display, uint16_t SliderX, uint16_t SliderY, uint16_t SliderW, uint16_t SliderH, uint16_t SliderColor, uint16_t BackColor, uint16_t OnColor, uint16_t OffColor)
 
-	bool getValue();
+    {
+        // map arguements to class variables
+        _d = display;
+        _l = SliderX;
+        _t = SliderY;
+        _w = SliderW;
+        _h = SliderH;
+        _sColor = SliderColor;
+        _bColor = BackColor;
+        _onColor = OnColor;
+        _offColor = OffColor;
+
+    }
+
+    bool slide(float ScreenX, float ScreenY){
+
+        _changed = false;
+
+        if ((ScreenX >= _l) && (ScreenX <= (_l + _w))) {
+
+
+            if (abs(ScreenY - (_t + (_h / 2))) < _h) {
+
+                _changed = true;
+
+                // it's in range of slider ball
+                if (ScreenX < (_l + (_w / 2))){
+                    // press in the off range
+                    if (_pos){
+
+                        // clear on button
+                        _d->fillCircle(_l + _w - (_h / 2), _t + (_h / 2), (_h / 2) - 2, _bColor);
+                        // draw off button
+                        _d->fillCircle(_l + (_h / 2), _t + (_h / 2), (_h / 2) - 2, _offColor);
+                        _pos = false;
+                    }
+                }
+                else {
+                    // it's in the on range
+                    if (!_pos){
+                        // clear on button
+                        _d->fillCircle(_l + (_h / 2), _t + (_h / 2), (_h / 2) - 2, _bColor);
+                        // draw off button
+                        _d->fillCircle(_l + _w - (_h / 2), _t + (_h / 2), (_h / 2) - 2, _onColor);
+
+                        _pos = true;
+                    }
+                }
+
+            }
+        }
+
+        return _pos;
+
+    }
+
+    void  draw(bool state) {
+
+        _pos = state;
+
+        _d->fillRoundRect(_l, _t, _w, _h, _h / 2, _bColor);
+        _d->drawRoundRect(_l, _t, _w, _h, _h / 2, _sColor);
+        _d->drawRoundRect(_l + 1, _t + 1, _w - 2, _h, _h / 2, _sColor);
+
+
+        if (state) {
+            // draw on button
+            _d->fillCircle(_l + _w - (_h / 2), _t + (_h / 2), (_h / 2) - 2, _onColor);
+        }
+
+        else {
+            // draw off button
+            _d->fillCircle(_l + (_h / 2), _t + (_h / 2), (_h / 2) - 2, _offColor);
+
+        }
+
+    }
+
+    bool changed(){
+
+        return _changed;
+
+    }
+
+    bool getValue(){
+
+        return _pos;
+
+    }
      
 private:
 
-	ILI9341_t3 *_d;			// the display object
+	TDisplay *_d;			// the display object
 	uint16_t _sColor;		// the slider color
 	uint16_t _bColor;		// the slider background color
 	uint16_t _onColor;		// the sliders on color
@@ -596,21 +2077,14 @@ private:
 	bool _changed;			//flag to track if button was just changed
   };
 
-
-
-/*
-
-Button class inspired by Adafruit, but added several methods
-
-*/
-
+template <typename TDisplay, typename TFont>
 class Button {
 public:
-    Button(ILI9341_t3 *Display) {d = Display; }
+    Button(TDisplay *Display) {d = Display; }
 
 	void init(int16_t ButtonX, int16_t ButtonY, uint8_t ButtonWidth, uint8_t ButtonHeight,
 		uint16_t OutlineColor, uint16_t ButtonColor, uint16_t TextColor, uint16_t BackgroundColor,
-		const char *ButtonText, int TextOffsetX, int TextOffsetY, const ILI9341_t3_font_t &TextFont ) {
+		const char *ButtonText, int TextOffsetX, int TextOffsetY, const TFont &TextFont ) {
 
 		x = ButtonX;
 		y = ButtonY;
@@ -709,7 +2183,6 @@ public:
 		}
 		
 	}
-
 	bool press(int16_t ScreenX, int16_t ScreenY) {
 
 		if ((!enabled) || (!visible)) {
@@ -727,13 +2200,10 @@ public:
 		return true;
 
 	}
-
 	void show() {
 		visible = true;
 		draw();
 	}
-
-
 	void hide() {
 
 		if (ct == CORNER_AUTO){
@@ -748,8 +2218,7 @@ public:
 
 		visible = false;
 	}
-
-	void disable() { 
+	void disable() {
 		enabled = false;
 		
 	}
@@ -757,8 +2226,6 @@ public:
 		enabled = true;
 		
 	}
-
-
 	void resize(int16_t ButtonX, int16_t ButtonY, uint8_t ButtonW, uint8_t ButtonH) {
 		//hide();
 		//draw();
@@ -769,7 +2236,6 @@ public:
 		h = ButtonH;
 	
 	}
-
 	void setColors(uint16_t OutlineColor, uint16_t ButtonColor, uint16_t TextColor, uint16_t BackgroundColor, uint16_t DisabledTextColor, uint16_t DisabledButtonColor) {
 		
 		outlinecolor = OutlineColor;
@@ -780,8 +2246,7 @@ public:
 		disablecolortext = DisabledTextColor;
 		
 	}
-
-	void setFont(int TextOffsetX, int TextOffsetY, const ILI9341_t3_font_t &TextFont) {
+	void setFont(int TextOffsetX, int TextOffsetY, const TFont &TextFont) {
 		x_offset = TextOffsetX;
 		y_offset = TextOffsetY;
 		f = TextFont;
@@ -807,13 +2272,12 @@ public:
 	void setPressDebounce(byte Debounce) { 
 		debounce = Debounce;
 	}
-	
 
 	int value;
 
 private:
-	ILI9341_t3 *d;
-	ILI9341_t3_font_t f;
+	TDisplay *d;
+	TFont f;
 	int16_t x, y;
 	uint16_t w, h;
 	int x_offset, y_offset;
@@ -829,19 +2293,12 @@ private:
 
 };
 
-
-/*
-
-Checkbox class
-
-*/
-
-
+template <typename TDisplay, typename TFont>
 class CheckBox {
 public:
-	CheckBox(ILI9341_t3 *Display) {d = Display; }
+	CheckBox(TDisplay *Display) {d = Display; }
 
-	void init(int16_t ButtonX, uint16_t ButtonY, uint16_t OutlineColor, uint16_t UPColor, uint16_t DownColor, uint16_t TextColor, uint16_t BackgroundColor, int TextOffsetX,int TextOffsetY, const char *Text, const ILI9341_t3_font_t &TextFont ) {
+	void init(int16_t ButtonX, uint16_t ButtonY, uint16_t OutlineColor, uint16_t UPColor, uint16_t DownColor, uint16_t TextColor, uint16_t BackgroundColor, int TextOffsetX,int TextOffsetY, const char *Text, const TFont &TextFont ) {
 
 		x = ButtonX ;
 		y = ButtonY + CHECKBOX_SIZE;
@@ -975,7 +2432,7 @@ public:
 		
 	}
 
-	void setText(int TextOffsetX,int TextOffsetY, const char *Text, const ILI9341_t3_font_t &TextFont) {
+	void setText(int TextOffsetX,int TextOffsetY, const char *Text, const TFont &TextFont) {
 
 		tox = TextOffsetX;
 		toy = TextOffsetY;
@@ -1005,9 +2462,9 @@ public:
 	bool value;
 
 private:
-	ILI9341_t3 *d;
+	TDisplay *d;
 	char label[60];
-	ILI9341_t3_font_t f;
+	TFont f;
 	int16_t x, y;
 	uint16_t s, ct;
 	uint16_t oc, uc, dc, bc, doc, duc, ddc, dtc, tc;
@@ -1018,20 +2475,12 @@ private:
 	byte debounce;
 };
 
-
-/*
-
-Checkbox class
-
-*/
-
+template <typename TDisplay, typename TFont>
 class OptionButton {
-
-	
 public:
-	OptionButton(ILI9341_t3 *Display) {d = Display; }
+	OptionButton(TDisplay *Display) {d = Display; }
 
-	void init(uint16_t OutlineColor, uint16_t SelectedColor, uint16_t UnSelectedColor, int16_t TextColor, uint16_t BackgroundColor, int TextOffsetX,int TextOffsetY, const ILI9341_t3_font_t &TextFont) {
+	void init(uint16_t OutlineColor, uint16_t SelectedColor, uint16_t UnSelectedColor, int16_t TextColor, uint16_t BackgroundColor, int TextOffsetX,int TextOffsetY, const TFont &TextFont) {
 
 		r = OPTION_BUTTON_RADIUS;
 		oc = OutlineColor;
@@ -1191,7 +2640,7 @@ public:
 				
 	}
 
-	void setFont(int TextOffsetX,int TextOffsetY, const ILI9341_t3_font_t &TextFont) {
+	void setFont(int TextOffsetX,int TextOffsetY, const TFont &TextFont) {
 		
 		tox = TextOffsetX;
 		toy = TextOffsetY;
@@ -1223,9 +2672,9 @@ public:
 	int option;
 
 private:
-	ILI9341_t3 *d;
+	TDisplay *d;
 	char label[MAX_OPTION][60];
-	ILI9341_t3_font_t f;
+	TFont f;
 	uint16_t x[MAX_OPTION], y[MAX_OPTION];
 	float rv[MAX_OPTION];
 	uint16_t r;
@@ -1238,49 +2687,235 @@ private:
 	byte debounce;
 };
 
-
+template <typename TDisplay>
 class SliderD {
 
  public:
 
-	SliderD(ILI9341_t3 *Display); // class constructor
-  
-	void init(uint16_t SliderX, uint16_t SliderY, uint16_t SliderR, float SweepAngle, float ScaleLow, float ScaleHi, uint16_t SliderColor, uint16_t BackgroundColor, uint16_t HandleColor);	// initializer
-   
-	void draw(float val);						// method to draw complete slider
-   
-	bool slide(uint16_t ScreenX, uint16_t ScreenY);	   // method to move handle as user drags finger over handle, this method automatically looks for a valid range press
-    
-	void setColors(uint16_t SliderColor, uint16_t BackgroundColor, uint16_t HandleColor);	// way to reset colors (useful for drawing enabled or disabled)
+    SliderD(TDisplay *Display)
 
-	void setHandleColor(uint16_t HandleColor);		// method to just draw the handle (useful for showing handle in green for OK value
+    {
+        // map arguements to class variables
+        d =Display;
 
-	void setHandleSize(int val);
 
-	void drawSliderColor(bool val);
+    }
+    void init(uint16_t SliderX, uint16_t SliderY, uint16_t SliderR, float SweepAngle, float ScaleLow, float ScaleHi, uint16_t SliderColor, uint16_t BackgroundColor, uint16_t HandleColor ) {
 
-	void setDisableColor(uint16_t HandleColor, uint16_t SliderColor);	// method to just draw the handle (useful for showing handle in green for OK value
+        // map arguements to class variables
+        x = SliderX;
+        y = SliderY;
+        r = SliderR;
+        sl = ScaleLow;
+        sh = ScaleHi;
+        sa = SweepAngle;
+        as = 180.0 + 90.0 -((360.0 - sa)/2.0);
+        ae = -(90.0-(360.0-sa)/2.0);
+        colorscale = true;
+        handlesize = SLIDER_HANDLE_SIZE;
+        enabled = true;
+        visible = true;
+        dt = 3;
+        sColor = SliderColor;
+        bColor = BackgroundColor;
+        hColor = HandleColor;
+        debounce = TFT_DEBOUNCE;
+        dsColor = C_DISABLE_LIGHT;
+        dhColor = C_DISABLE_MED;
+        redraw = true;
+        state = true;
+    }
+    void setColors(uint16_t SliderColor, uint16_t BackgroundColor, uint16_t HandleColor) {
 
-	void setScale(float ScaleLow, float ScaleHi);
+        // map arguements to class variables
+        sColor = SliderColor;
+        bColor = BackgroundColor;
+        hColor = HandleColor;
 
-	void setRingThickness(byte Thickness);
+    }
 
-	void disable();
+    void  draw(float val) {
 
-	void enable();
+        pressed = false;
 
-	void show();
+        if (!redraw){
+            redraw = !redraw;
+            return;
+        }
 
-	void hide();
+        if ((val < sl) || (val > sh)){
+            return;
+        }
+        if  (!visible) {
+            if (!visible) {
+                DrawRing(as, ae, bColor);
+                DrawHandle(angle, bColor, bColor);
+            }
+            return;
+        }
 
-	void setPressDebounce(byte Debounce);
+        value = val;
+
+        if (enabled) {
+            tsColor = sColor;
+            thColor = hColor;
+        }
+        else {
+            tsColor = dsColor;
+            thColor = dhColor;
+        }
+        // get position angle
+        angle = MapFloat(value, sl, sh, (float)as, (float)ae );
+
+        if (colorscale){
+            DrawRing(as, angle, thColor);
+        }
+        else {
+            DrawRing(as, angle, tsColor);
+        }
+
+        DrawRing(angle, ae, tsColor);
+
+        DrawHandle(angle, thColor, tsColor);
+
+        oangle = angle;
+
+        value = val;
+
+    }
+    bool slide(uint16_t ScreenX, uint16_t ScreenY){
+
+        pressed = false;
+
+        if ((!enabled) || (!visible)) {
+            //return pos;
+            return pressed;
+        }
+
+        // is press in range
+
+        dist = sqrt( ((ScreenX - x)*(ScreenX - x)) + ((ScreenY - y)*(ScreenY - y))   );
+
+        angle = (atan( (abs(y - (float)ScreenY)) / ( abs(x - (float) ScreenX)) )) / degtorad;
+        // cases
+
+        // quad 1
+        if ((ScreenX >= x) && (ScreenY <= y)){
+            angle = angle;
+        }
+            //quad 4
+        else if ((ScreenX > x) && (ScreenY > y)){
+            angle = -angle;
+        }
+            // quad 2
+        else if ((ScreenX <= x) && (ScreenY <= y)){
+            angle = 180-angle;
+        }
+            // quad 3
+        else if ((ScreenX <= x) && (ScreenY >= y)){
+            angle = 180+angle;
+        }
+
+        if (   (abs(angle - oangle) > 0 ) && (abs(dist-r)) < (handlesize/2) && (angle <= as) && (angle >= ae)){
+
+            pressed = true;
+            redraw = true;
+            DrawHandle(oangle, bColor, bColor);
+
+            if (colorscale){
+                DrawRing(as, angle, hColor);
+            }
+            else {
+                DrawRing(as, angle, sColor);
+            }
+            DrawRing(angle, ae, sColor);
+
+            DrawHandle(angle, hColor, sColor);
+
+            oangle = angle;
+
+            value = MapFloat(angle,as,ae,sl, sh);
+
+        }
+        return pressed;
+    }
+    void  setHandleColor(uint16_t HandleColor) {
+
+        hColor = HandleColor;
+
+    }
+    void drawSliderColor(bool state){
+
+        colorscale = state;
+
+    }
+    void setRingThickness(byte Thickness){
+
+        dt = Thickness;
+
+    }
+    void  setDisableColor(uint16_t HandleColor, uint16_t SliderColor) {
+
+        dsColor = SliderColor;
+        dhColor = HandleColor;
+
+    }
+    void setScale(float ScaleLow, float ScaleHi) {
+
+        sl = ScaleLow;
+        sh = ScaleHi;
+
+    }
+    void  enable() {
+
+        enabled = true;
+        redraw = false;
+        if(!state) {
+            state = true;
+            redraw = true;
+        }
+    }
+    void  disable() {
+        enabled = false;
+        redraw = false;
+        if(state) {
+            state = false;
+            redraw = true;
+        }
+    }
+    void  show() {
+
+        visible = true;
+
+    }
+    void  hide() {
+
+        visible = false;
+
+    }
+    void setHandleSize(int value){
+
+        if (value < 4) {
+            handlesize = 4;
+        }
+        else if (value > 100) {
+            handlesize = 100;
+        }
+        else {
+            handlesize = value;
+        }
+
+    }
+    void setPressDebounce(byte Debounce) {
+        debounce = Debounce;
+    }
 
 	float value;
 	bool state;
 
 private:
 
-	ILI9341_t3 *d;			// the display object
+	TDisplay *d;			// the display object
 	uint16_t sColor;		// the slider color
 	uint16_t bColor;		// the slider background color
 	uint16_t hColor;		// the sliders drag handle
@@ -1300,14 +2935,40 @@ private:
 	float dist;
 	bool colorscale;		// flag to draw slider in handle color
 	bool pressed = false;
-	float MapFloat(float x, float fromLow, float fromHigh, float toLow, float toHigh);// why Arduino has no mapping for floats is beyond me, here it is...
+    float MapFloat(float val, float fromLow, float fromHigh, float toLow, float toHigh) {
+        return (val - fromLow) * (toHigh - toLow) / (fromHigh - fromLow) + toLow;
+    }
 	int handlesize;
 	bool enabled;
 	bool visible, redraw;
 	byte debounce;
-	void DrawRing(float start, float end, uint16_t color);
-	void DrawHandle(float angle, uint16_t hColor, uint16_t sColor);
-  };
+    void DrawRing(float Start, float End, uint16_t color){
 
+        for (i = Start; i > End; i--){
+            hx = (r * (cos(i * degtorad))) + x;
+            hy = -(r * (sin(i * degtorad))) + y;
+
+            d->fillCircle(hx, hy, dt, color);
+
+            if (color == bColor){
+                d->fillCircle(hx, hy, dt+1, color);
+            }
+        }
+    }
+    void DrawHandle(float angle, uint16_t hColor, uint16_t sColor){
+
+        hx = (r * (cos(angle * degtorad))) + x;
+        hy = -(r * (sin(angle * degtorad))) + y;
+
+        if (hColor == bColor){
+            d->fillCircle(hx, hy, handlesize, bColor); // erase it
+        }
+        else {
+            d->fillCircle(hx, hy, handlesize, hColor);
+            d->drawCircle(hx, hy, handlesize-1, sColor);
+            d->drawCircle(hx, hy, handlesize-2, sColor);
+        }
+    }
+  };
 
 #endif
