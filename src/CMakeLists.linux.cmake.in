@@ -1,0 +1,52 @@
+cmake_minimum_required(VERSION 3.22)
+project(teensy_ili9341_controls-linux)
+set(teensy_ili9341_controls_VERSION 1.0.0)
+
+set(CMAKE_CXX_STANDARD 14)
+
+find_package(teensy_x86_stubs)
+include_directories(${teensy_x86_stubs_INCLUDE_DIR})
+
+add_definitions(-DARDUINO=146)
+
+set(INCLUDE_INSTALL_DIR ${CMAKE_INSTALL_PREFIX}/include/teensy_ili9341_controls/)
+set(LIB_INSTALL_DIR ${CMAKE_INSTALL_PREFIX}/lib/teensy_ili9341_controls )
+set(SOURCE_FILES
+        ILI9341_t3_Controls.cpp)
+
+set(HEADER_FILES
+    ILI9341_t3_Controls.h)
+
+add_library(teensy_ili9341_controls SHARED STATIC ${HEADER_FILES} ${SOURCE_FILES})
+
+set_target_properties(teensy_ili9341_controls PROPERTIES PUBLIC_HEADER "${HEADER_FILES}")
+
+include(CMakePackageConfigHelpers)
+configure_package_config_file(../cmake/teensy_ili9341_controls.cmake.in
+        ${CMAKE_CURRENT_BINARY_DIR}/teensy_ili9341_controlsConfig.cmake
+        INSTALL_DESTINATION ${LIB_INSTALL_DIR}/teensy_ili9341_controls/cmake
+        PATH_VARS)
+
+write_basic_package_version_file(
+        ${CMAKE_CURRENT_BINARY_DIR}/teensy_ili9341_controlsConfigVersion.cmake
+        VERSION ${teensy_ili9341_controls_VERSION}
+        COMPATIBILITY SameMajorVersion )
+
+install(TARGETS teensy_ili9341_controls DESTINATION
+        LIBRARY DESTINATION ${LIB_INSTALL_DIR}
+        ARCHIVE DESTINATION ${LIB_INSTALL_DIR}
+        PUBLIC_HEADER DESTINATION "include/teensy_ili9341_controls"
+        )
+
+install(FILES
+        ${CMAKE_CURRENT_BINARY_DIR}/teensy_ili9341_controlsConfig.cmake
+        ${CMAKE_CURRENT_BINARY_DIR}/teensy_ili9341_controlsConfigVersion.cmake
+        ${CMAKE_CURRENT_SOURCE_DIR}/../cmake/uninstall.cmake
+        DESTINATION "lib/cmake/teensy_ili9341_controls" )
+
+##
+# copied from: https://gist.github.com/royvandam/3033428
+# Add uninstall target
+# Requirements: Copy the uninstall.cmake file to the appropriate CMAKE_MODULE_PATH.
+add_custom_target(uninstall
+        "${CMAKE_COMMAND}" -P "${CMAKE_CURRENT_SOURCE_DIR}/../cmake/uninstall.cmake")

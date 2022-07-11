@@ -1,0 +1,13 @@
+cmake_minimum_required(VERSION 3.10)
+project(teensy-ili9341-controls-teensy C CXX)
+
+set(SOURCE_FILES
+		ILI9341_t3_Controls.cpp
+		)
+
+set(HEADER_FILES
+		ILI9341_t3_Controls.h)
+
+teensy_add_library(teensy-ili9341-controls-teensy ${SOURCE_FILES})
+#teensy_target_link_libraries(launch_ctrl Audio USBHost_t36 ST7735_t3  arm_math SD SdFat  SPI SerialFlash  Wire  cores )
+#target_link_libraries(teensy_gfx.elf m stdc++)
